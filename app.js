@@ -1,15 +1,96 @@
+/* jshint esversion:6*/
+
 const Users = require('./models/users');
 // require packages
-
+const express = require('express');
+const bodyParser = require('body-parser');
+const passport = require('passport');
+//express package for handling authentication
+//passportjs.org
+const LocalStrategy = require('passport-local').Strategy;
+const session  = require('express-session');
 // invoke express
-
+const app = express();
 // add middleware
+// all middleware takes in a function with arguments req, res, and next
+app.use(express.static('public'));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(session({
+  secret: 'keyboard cat',
+  resave: false,
+  saveUinitiallized: false
+}));
+app.use(passport.initialize());
+//extends the express session with passport specifics
+app.use(passport.session());
 
 // add routes
 // app.get('/', (req, res) => {
 //   res.send('smoke test');
 // });
 
+passport.serializeUser((user, cb) => {
+  //node patterm (error, evaluated id property)
+  cb(null, user.id);
+});
+
+passport.deserializeUser((userId, cb) => {
+  Users.findById(userId, cb);
+});
+
+passport.use(new LocalStrategy((username, password, done) => {
+  Users.findUser(/* WHERE */{ username: username }, (err, user) => {
+    // set up fail cases
+    if (err) { return done(err);}
+    if (!user) {
+      return done(null, false, { message: 'Incorrect username' });
+    }
+    if (user.password !== password){
+      return done(null, false, { message: 'Incorrect password'});
+    }
+    return done(null, user);
+  });
+}));
+
+
+app.get('/', (req, res) => {
+  res.send('smoke test');
+});
+
+app.get('/secret', isAuthenticated, (req, res) => {
+  res.send(`You have access to the secret: ${req.user.id} ${req.user.username}`);
+});
+
+app.get('/admin', hasAdminAccess, (req, res) => {
+  res.send(`Welcome to the admin section Boss: ${req.user.id} ${req.user.role}`);
+});
+
+app.get('/logout', (req, res) => {
+  res.logout();
+  res.redirect('/login');
+});
+
+app.post('/login', passport.authenticate('local', {
+  successRedirect: '/secret',
+  failureRedirect: '/login.html'
+}));
+
 module.exports = app;
 
 // custom authentication check middleware
+function isAuthenticated(req, res, next){
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.redirect('/login.html');
+}
+
+function hasAdminAccess(req, res, next){
+  if (req.isAuthenticated()) {
+    if (req.user.role === 'admin') {
+      return next();
+    }
+    return res.redirect('/secret');
+  }
+  res.redirect('/login.html');
+}
